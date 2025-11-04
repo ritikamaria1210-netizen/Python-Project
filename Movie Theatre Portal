@@ -1,0 +1,120 @@
+import mysql.connector
+
+db = mysql.connector.connect(
+    host="localhost",
+    user="root",  
+    password="0789",
+    database="movie_booking"
+)
+
+cursor = db.cursor()
+
+def add_theatre():
+    name = input("Enter Theatre Name: ")
+    seats = int(input("Enter total seats: "))
+
+    query = "INSERT INTO theatres (name, total_seats, available_seats) VALUES (%s, %s, %s)"
+    cursor.execute(query, (name, seats, seats))
+    db.commit()
+    print("\nTheatre added successfully!\n")
+
+def view_theatres():
+    cursor.execute("SELECT id, name, available_seats FROM theatres")
+    rows = cursor.fetchall()
+
+    if not rows:
+        print("\nNo theatres available!\n")
+        return False
+
+    print("\n--- Available Theatres ---")
+    for row in rows:
+        print(f"ID: {row[0]} | Name: {row[1]} | Available Seats: {row[2]}")
+    return True
+
+def book_seats():
+    if not view_theatres():
+        return
+
+    theatre_id = int(input("\nEnter Theatre ID to book: "))
+    seats = int(input("Enter number of seats: "))
+    user_name = input("Enter Your Name: ")
+
+    try:
+        cursor.execute("SELECT available_seats FROM theatres WHERE id=%s FOR UPDATE", (theatre_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            print("\nInvalid Theatre ID!\n")
+            return
+
+        available = row[0]
+
+        if seats <= available:
+            cursor.execute("UPDATE theatres SET available_seats = available_seats - %s WHERE id = %s",
+                           (seats, theatre_id))
+            cursor.execute("INSERT INTO bookings (theatre_id, seats_booked, user_name) VALUES (%s, %s, %s)",
+                           (theatre_id, seats, user_name))
+            db.commit()
+            print("\n Congratulations, Booking Successful!\n")
+        else:
+            print("\nNot enough seats available!\n")
+
+    except Exception as e:
+        print("Error:", e)
+        db.rollback()
+
+def owner_menu():
+    while True:
+        print("\n--- OWNER MENU ---")
+        print("1. Add Theatre")
+        print("2. View Theatres")
+        print("3. Logout\n")
+        choice = input("Choose: ")
+
+        if choice == "1":
+            add_theatre()
+        elif choice == "2":
+            view_theatres()
+        elif choice == "3":
+            break
+        else:
+            print("Invalid Choice!")
+
+def user_menu():
+    while True:
+        print("\n--- USER MENU ---")
+        print("1. View Theatres")
+        print("2. Book Seats")
+        print("3. Back\n")
+        choice = input("Choose: ")
+
+        if choice == "1":
+            view_theatres()
+        elif choice == "2":
+            book_seats()
+        elif choice == "3":
+            break
+        else:
+            print("Invalid Choice!")
+
+def main_menu():
+    while True:
+        print("\n========== MOVIE BOOKING SYSTEM ==========")
+        print("1. Owner Login")
+        print("2. User Login")
+        print("3. Exit")
+        choice = input("Choose: ")
+
+        if choice == "1":
+            owner_menu()
+        elif choice == "2":
+            user_menu()
+        elif choice == "3":
+            print("\nThank you for using the App!\n")
+            cursor.close()
+            db.close()
+            break
+        else:
+            print("Invalid Choice!")
+
+main_menu()
