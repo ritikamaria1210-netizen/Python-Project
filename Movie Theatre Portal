@@ -1,25 +1,100 @@
 import mysql.connector
+import hashlib
+import re
+import datetime
 
 db = mysql.connector.connect(
     host="localhost",
-    user="root",  
+    user="root",
     password="0789",
     database="movie_booking"
 )
 
 cursor = db.cursor()
 
+current_owner_id = None  # Store which owner is logged in
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def is_valid_username(username):
+    return re.match(r'^[A-Za-z][A-Za-z0-9_]{3,}$', username)
+
+def register_owner():
+    print("\n--- Owner Registration ---")
+
+    while True:
+        username = input("Create Username: ")
+
+        if not is_valid_username(username):
+            print("\nInvalid Username!")
+            print("Rules: Only letters, numbers & underscore allowed.")
+            print("Must start with a letter. Minimum length: 4")
+            continue
+        break
+
+    password = input("Create Password: ")
+    hashed_pw = hash_password(password)
+
+    try:
+        cursor.execute("INSERT INTO owners (username, password) VALUES (%s, %s)", 
+                       (username, hashed_pw))
+        db.commit()
+        print("\nOwner Registered Successfully!\n")
+    except:
+        print("\nUsername already exists! Try another.\n")
+
+def login_owner():
+    global current_owner_id
+    print("\n--- Owner Login ---")
+    username = input("Username: ")
+    password = hash_password(input("Password: "))
+
+    cursor.execute("SELECT id FROM owners WHERE username=%s AND password=%s", 
+                   (username, password))
+    
+    row = cursor.fetchone()
+    if row:
+        current_owner_id = row[0]
+        print("\nLogin Successful!\n")
+        owner_menu()
+    else:
+        print("\nIncorrect Username or Password!\n")
+
 def add_theatre():
+    global current_owner_id
+    
     name = input("Enter Theatre Name: ")
+    movie_name = input("Enter Movie Name: ")  # ✅ Added
     seats = int(input("Enter total seats: "))
 
-    query = "INSERT INTO theatres (name, total_seats, available_seats) VALUES (%s, %s, %s)"
-    cursor.execute(query, (name, seats, seats))
-    db.commit()
-    print("\nTheatre added successfully!\n")
+    while True:
+        date_input = input("Enter Show Date (YYYY-MM-DD): ")
+        time_input = input("Enter Show Time (HH:MM, 24-hour): ")
+        try:
+            datetime.datetime.strptime(date_input, "%Y-%m-%d")
+            datetime.datetime.strptime(time_input, "%H:%M")
+            break
+        except:
+            print("\nInvalid date/time format! Try again.\n")
 
-def view_theatres():
-    cursor.execute("SELECT id, name, available_seats FROM theatres")
+    query = """INSERT INTO theatres 
+               (name, movie_name, total_seats, available_seats, owner_id, show_date, show_time) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s)"""
+
+    cursor.execute(query, (name, movie_name, seats, seats, current_owner_id, date_input, time_input))
+    db.commit()
+    print("\nTheatre with movie & showtime added successfully!\n")
+
+def view_theatres(owner_view=False):
+    global current_owner_id
+
+    if owner_view:
+        cursor.execute("SELECT id, name, movie_name, available_seats, show_date, show_time FROM theatres WHERE owner_id=%s", 
+                       (current_owner_id,))
+    else:
+        cursor.execute("SELECT id, name, movie_name, available_seats, show_date, show_time FROM theatres")
+
     rows = cursor.fetchall()
 
     if not rows:
@@ -28,7 +103,23 @@ def view_theatres():
 
     print("\n--- Available Theatres ---")
     for row in rows:
-        print(f"ID: {row[0]} | Name: {row[1]} | Available Seats: {row[2]}")
+        print(f"ID: {row[0]} | Theatre: {row[1]} | Movie: {row[2]} | Seats Left: {row[3]} | Date: {row[4]} | Time: {row[5]}")
+    return True
+
+def search_movie():
+    keyword = input("\nEnter Movie Name to Search: ").strip()
+    cursor.execute("SELECT id, name, movie_name, available_seats, show_date, show_time FROM theatres WHERE movie_name LIKE %s",
+                   ("%"+keyword+"%",))
+    rows = cursor.fetchall()
+
+    if not rows:
+        print("\nNo matching movie found!\n")
+        return False
+
+    print("\n--- Search Results ---")
+    for row in rows:
+        print(f"ID: {row[0]} | Theatre: {row[1]} | Movie: {row[2]} | Seats Left: {row[3]} | Date: {row[4]} | Time: {row[5]}")
+    
     return True
 
 def book_seats():
@@ -55,7 +146,7 @@ def book_seats():
             cursor.execute("INSERT INTO bookings (theatre_id, seats_booked, user_name) VALUES (%s, %s, %s)",
                            (theatre_id, seats, user_name))
             db.commit()
-            print("\n Congratulations, Booking Successful!\n")
+            print("\nBooking Successful!\n")
         else:
             print("\nNot enough seats available!\n")
 
@@ -66,15 +157,15 @@ def book_seats():
 def owner_menu():
     while True:
         print("\n--- OWNER MENU ---")
-        print("1. Add Theatre")
-        print("2. View Theatres")
+        print("1. Add Theatre, Movie & Show Timing")
+        print("2. View My Theatres")
         print("3. Logout\n")
         choice = input("Choose: ")
 
         if choice == "1":
             add_theatre()
         elif choice == "2":
-            view_theatres()
+            view_theatres(owner_view=True)
         elif choice == "3":
             break
         else:
@@ -83,16 +174,19 @@ def owner_menu():
 def user_menu():
     while True:
         print("\n--- USER MENU ---")
-        print("1. View Theatres")
-        print("2. Book Seats")
-        print("3. Back\n")
+        print("1. View All Shows")
+        print("2. Search Movie")
+        print("3. Book Seats")
+        print("4. Back\n")
         choice = input("Choose: ")
 
         if choice == "1":
             view_theatres()
         elif choice == "2":
-            book_seats()
+            search_movie()  
         elif choice == "3":
+            book_seats()
+        elif choice == "4":
             break
         else:
             print("Invalid Choice!")
@@ -101,15 +195,18 @@ def main_menu():
     while True:
         print("\n========== MOVIE BOOKING SYSTEM ==========")
         print("1. Owner Login")
-        print("2. User Login")
-        print("3. Exit")
+        print("2. Owner Registration")
+        print("3. User Menu")
+        print("4. Exit")
         choice = input("Choose: ")
 
         if choice == "1":
-            owner_menu()
+            login_owner()
         elif choice == "2":
-            user_menu()
+            register_owner()
         elif choice == "3":
+            user_menu()
+        elif choice == "4":
             print("\nThank you for using the App!\n")
             cursor.close()
             db.close()
